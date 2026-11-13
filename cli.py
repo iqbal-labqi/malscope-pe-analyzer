@@ -134,10 +134,11 @@ def run_pipeline(target_path: Path, output_dir: Path, dry_run: bool):
 
     # Member 2: PE Structure & Entropy
     try:
-        from core.pe_analyzer import analyze_pe  # type: ignore
+        from core.pe_analyzer import analyze_pe, print_pe_summary  # type: ignore
 
         results["pe_analysis"] = analyze_pe(str(target_path))
         print(f"{Fore.GREEN}[+] PE Structure & Entropy analysis complete.")
+        print_pe_summary(results["pe_analysis"])
     except ImportError:
         print(f"{Fore.YELLOW}[PENDING] core/pe_analyzer.py (Member 2) not implemented yet.")
 
