@@ -144,10 +144,11 @@ def run_pipeline(target_path: Path, output_dir: Path, dry_run: bool):
 
     # Member 3: Suspicious API Checker
     try:
-        from core.api_checker import check_suspicious_apis  # type: ignore
+        from core.api_checker import check_suspicious_apis, print_api_summary  # type: ignore
 
         results["api_checks"] = check_suspicious_apis(str(target_path))
         print(f"{Fore.GREEN}[+] Suspicious API check complete.")
+        print_api_summary(results["api_checks"])
     except ImportError:
         print(f"{Fore.YELLOW}[PENDING] core/api_checker.py (Member 3) not implemented yet.")
 
