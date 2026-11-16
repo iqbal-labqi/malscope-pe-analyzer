@@ -1,13 +1,13 @@
 """
 MalScope (PE-Sentry) - Suspicious Windows API Checker
-Member 3: Suspicious API Checker
+Member 3: Suspicious API & Behavioral Combo Checker
 
-Parses the PE Import Table (DIRECTORY_ENTRY_IMPORT) using pefile and flags
-high-risk Windows APIs commonly associated with process injection, persistence,
-anti-analysis, networking/C2, and credential access.
+Parses the PE Import Table (DIRECTORY_ENTRY_IMPORT) using pefile, flags
+high-risk Windows APIs, detects multi-API malicious attack chains mapped to
+MITRE ATT&CK techniques, and checks for minimal/packed import table anomalies.
 """
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Set
 
 import pefile
 
@@ -26,6 +26,7 @@ SUSPICIOUS_API_CATEGORIES: Dict[str, Dict[str, str]] = {
         "OpenProcess": "Opens a handle to another running process",
         "QueueUserAPC": "Queues an APC for code injection",
         "SetThreadContext": "Modifies thread registers (e.g., process hollowing)",
+        "NtUnmapViewOfSection": "Unmaps a section from a target process (hollowing)",
     },
     "Execution & Persistence": {
         "CreateProcessA": "Launches a new process (ANSI)",
@@ -46,6 +47,9 @@ SUSPICIOUS_API_CATEGORIES: Dict[str, Dict[str, str]] = {
         "NtQueryInformationProcess": "Queries process internals / debugger flags",
         "GetTickCount": "Timing check used to detect sandboxes",
         "Sleep": "Delays execution to evade sandbox timeouts",
+        "LoadLibraryA": "Dynamically loads a DLL at runtime (ANSI)",
+        "LoadLibraryW": "Dynamically loads a DLL at runtime (Unicode)",
+        "GetProcAddress": "Resolves API addresses dynamically to hide imports",
     },
     "Network & C2": {
         "InternetOpenA": "Initializes WinINet network session (ANSI)",
@@ -69,6 +73,65 @@ SUSPICIOUS_API_CATEGORIES: Dict[str, Dict[str, str]] = {
         "CryptUnprotectData": "Decrypts DPAPI-protected data/credentials",
     },
 }
+
+# Behavioral API chains mapped to MITRE ATT&CK techniques.
+# Each rule defines groups of equivalent APIs where at least one from each group must be present.
+API_BEHAVIOR_RULES: List[Dict[str, Any]] = [
+    {
+        "name": "Classic Remote Process Injection",
+        "mitre_id": "T1055",
+        "severity": "HIGH",
+        "required_groups": [
+            {"OpenProcess"},
+            {"VirtualAllocEx"},
+            {"WriteProcessMemory"},
+            {"CreateRemoteThread", "CreateRemoteThreadEx", "NtCreateThreadEx"},
+        ],
+        "description": "Allocates memory and executes a remote thread inside another process.",
+    },
+    {
+        "name": "Process Hollowing",
+        "mitre_id": "T1055.012",
+        "severity": "HIGH",
+        "required_groups": [
+            {"CreateProcessA", "CreateProcessW"},
+            {"NtUnmapViewOfSection"},
+            {"WriteProcessMemory"},
+            {"SetThreadContext"},
+        ],
+        "description": "Spawns a suspended legitimate process and replaces its memory image.",
+    },
+    {
+        "name": "Remote Payload Dropper & Executor",
+        "mitre_id": "T1105",
+        "severity": "HIGH",
+        "required_groups": [
+            {"URLDownloadToFileA", "URLDownloadToFileW", "InternetOpenUrlA", "InternetOpenUrlW"},
+            {"WinExec", "ShellExecuteA", "ShellExecuteW", "CreateProcessA", "CreateProcessW"},
+        ],
+        "description": "Downloads a second-stage payload from a remote URL and executes it.",
+    },
+    {
+        "name": "Keyboard Hook / Input Logging",
+        "mitre_id": "T1056.001",
+        "severity": "MEDIUM",
+        "required_groups": [
+            {"SetWindowsHookExA", "SetWindowsHookExW"},
+            {"GetAsyncKeyState", "GetKeyState"},
+        ],
+        "description": "Installs system hooks and polls key states to capture user keystrokes.",
+    },
+    {
+        "name": "Dynamic API Resolution (Import Obfuscation)",
+        "mitre_id": "T1027.007",
+        "severity": "MEDIUM",
+        "required_groups": [
+            {"LoadLibraryA", "LoadLibraryW"},
+            {"GetProcAddress"},
+        ],
+        "description": "Resolves Windows APIs dynamically at runtime to evade static IAT inspection.",
+    },
+]
 
 
 def build_api_lookup() -> Dict[str, Dict[str, str]]:
@@ -101,20 +164,71 @@ def extract_imports(pe: pefile.PE) -> List[Dict[str, str]]:
     return imports
 
 
+def detect_api_combos(imported_functions: Set[str]) -> List[Dict[str, Any]]:
+    """
+    Evaluate imported function sets against known multi-API malicious behavioral chains.
+    Returns a list of matched MITRE ATT&CK technique patterns.
+    """
+    matched_combos: List[Dict[str, Any]] = []
+
+    for rule in API_BEHAVIOR_RULES:
+        matched_apis: List[str] = []
+        all_groups_satisfied = True
+
+        for group in rule["required_groups"]:
+            overlap = sorted(imported_functions.intersection(group))
+            if overlap:
+                matched_apis.extend(overlap)
+            else:
+                all_groups_satisfied = False
+                break
+
+        if all_groups_satisfied:
+            matched_combos.append(
+                {
+                    "name": rule["name"],
+                    "mitre_id": rule["mitre_id"],
+                    "severity": rule["severity"],
+                    "matched_apis": matched_apis,
+                    "description": rule["description"],
+                }
+            )
+
+    return matched_combos
+
+
+def check_import_anomalies(total_imports: int, has_import_dir: bool) -> List[str]:
+    """Flag structural anomalies in the Import Address Table (e.g., packed binaries)."""
+    anomalies: List[str] = []
+    if not has_import_dir or total_imports == 0:
+        anomalies.append(
+            "No Import Address Table (IAT) found — binary may be heavily packed or corrupt."
+        )
+    elif total_imports < 5:
+        anomalies.append(
+            f"Unusually low import count ({total_imports} APIs) — strong indicator of packing/obfuscation."
+        )
+    return anomalies
+
+
 def check_suspicious_apis(file_path: str) -> Dict[str, Any]:
     """
-    Inspect a PE file's import table and flag any suspicious Windows APIs.
-    Returns a structured dictionary with counts and categorized findings.
+    Inspect a PE file's import table and flag suspicious Windows APIs,
+    multi-API behavioral chains, and import table anomalies.
     """
     pe = None
     try:
         pe = pefile.PE(file_path, fast_load=False)
+        has_import_dir = hasattr(pe, "DIRECTORY_ENTRY_IMPORT")
         all_imports = extract_imports(pe)
         lookup = build_api_lookup()
 
         flagged_apis: List[Dict[str, str]] = []
+        imported_func_set: Set[str] = set()
+
         for item in all_imports:
             func = item["function"]
+            imported_func_set.add(func)
             if func in lookup:
                 flagged_apis.append(
                     {
@@ -126,6 +240,8 @@ def check_suspicious_apis(file_path: str) -> Dict[str, Any]:
                 )
 
         imported_dlls = sorted({item["dll"] for item in all_imports})
+        detected_combos = detect_api_combos(imported_func_set)
+        anomalies = check_import_anomalies(len(all_imports), has_import_dir)
 
         return {
             "status": "ok",
@@ -133,6 +249,9 @@ def check_suspicious_apis(file_path: str) -> Dict[str, Any]:
             "total_imports": len(all_imports),
             "flagged_count": len(flagged_apis),
             "flagged_apis": flagged_apis,
+            "combo_count": len(detected_combos),
+            "detected_combos": detected_combos,
+            "import_anomalies": anomalies,
         }
     except pefile.PEFormatError as exc:
         return {
@@ -145,7 +264,7 @@ def check_suspicious_apis(file_path: str) -> Dict[str, Any]:
 
 
 def print_api_summary(api_data: Dict[str, Any]) -> None:
-    """Print a formatted terminal summary of imported and suspicious APIs."""
+    """Print a formatted terminal summary of imported APIs, combos, and anomalies."""
     if api_data.get("status") != "ok":
         print(f"[-] API Check Error: {api_data.get('error', 'Unknown error')}")
         return
@@ -154,9 +273,19 @@ def print_api_summary(api_data: Dict[str, Any]) -> None:
     print(f"  Imported DLLs   : {len(api_data['imported_dlls'])}")
     print(f"  Total Imports   : {api_data['total_imports']}")
     print(f"  Flagged APIs    : {api_data['flagged_count']}")
+    print(f"  Attack Chains   : {api_data.get('combo_count', 0)}")
+
+    for anomaly in api_data.get("import_anomalies", []):
+        print(f"  [!] IAT Anomaly : {anomaly}")
+
+    if api_data.get("detected_combos"):
+        print("\n  [!] Detected Behavioral API Chains (MITRE ATT&CK):")
+        for combo in api_data["detected_combos"]:
+            apis_str = " + ".join(combo["matched_apis"])
+            print(f"      - [{combo['severity']}] {combo['name']} ({combo['mitre_id']}): {apis_str}")
 
     if api_data["flagged_apis"]:
-        print(f"  {'Function':<26} {'DLL':<16} {'Category'}")
+        print(f"\n  {'Function':<26} {'DLL':<16} {'Category'}")
         print("  " + "-" * 68)
         for api in api_data["flagged_apis"]:
             print(f"  {api['function']:<26} {api['dll']:<16} {api['category']}")
