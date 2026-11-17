@@ -154,19 +154,21 @@ def run_pipeline(target_path: Path, output_dir: Path, dry_run: bool):
 
     # Member 4: IOC Extractor
     try:
-        from core.ioc_extractor import extract_iocs  # type: ignore
+        from core.ioc_extractor import extract_iocs, print_ioc_summary  # type: ignore
 
         results["iocs"] = extract_iocs(str(target_path))
         print(f"{Fore.GREEN}[+] IOC extraction complete.")
+        print_ioc_summary(results["iocs"])
     except ImportError:
         print(f"{Fore.YELLOW}[PENDING] core/ioc_extractor.py (Member 4) not implemented yet.")
 
     # Member 5: Scoring & Report Output
     try:
-        from core.scorer import score_and_save  # type: ignore
+        from core.scorer import print_score_summary, score_and_save  # type: ignore
 
         results["score"] = score_and_save(results, str(output_dir))
         print(f"{Fore.GREEN}[+] Risk scoring & local report saved to {output_dir}.")
+        print_score_summary(results["score"])
     except ImportError:
         print(f"{Fore.YELLOW}[PENDING] core/scorer.py (Member 5) not implemented yet.")
 
