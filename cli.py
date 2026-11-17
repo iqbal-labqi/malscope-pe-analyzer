@@ -139,8 +139,14 @@ def run_pipeline(target_path: Path, output_dir: Path, dry_run: bool):
         results["pe_analysis"] = analyze_pe(str(target_path))
         print(f"{Fore.GREEN}[+] PE Structure & Entropy analysis complete.")
         print_pe_summary(results["pe_analysis"])
-    except ImportError:
-        print(f"{Fore.YELLOW}[PENDING] core/pe_analyzer.py (Member 2) not implemented yet.")
+    except ImportError as exc:
+        if "pefile" in str(exc):
+            print(
+                f"{Fore.RED}[-] Missing 'pefile' library. Activate your virtual environment "
+                f"(.venv\\Scripts\\activate) or run: .venv\\Scripts\\python cli.py"
+            )
+        else:
+            print(f"{Fore.YELLOW}[PENDING] core/pe_analyzer.py (Member 2) not implemented yet.")
 
     # Member 3: Suspicious API Checker
     try:
@@ -149,8 +155,9 @@ def run_pipeline(target_path: Path, output_dir: Path, dry_run: bool):
         results["api_checks"] = check_suspicious_apis(str(target_path))
         print(f"{Fore.GREEN}[+] Suspicious API check complete.")
         print_api_summary(results["api_checks"])
-    except ImportError:
-        print(f"{Fore.YELLOW}[PENDING] core/api_checker.py (Member 3) not implemented yet.")
+    except ImportError as exc:
+        if "pefile" not in str(exc):
+            print(f"{Fore.YELLOW}[PENDING] core/api_checker.py (Member 3) not implemented yet.")
 
     # Member 4: IOC Extractor
     try:
