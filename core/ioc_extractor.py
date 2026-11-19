@@ -46,6 +46,8 @@ IGNORED_TLDS = {
     "xml",
     "json",
     "manifest",
+    "bin",
+    "dat",
 }
 
 
