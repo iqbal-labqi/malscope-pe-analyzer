@@ -17,19 +17,7 @@
 
 ## 2. Architecture & System Flow
 
-```mermaid
-flowchart TD
-    A["User runs: python cli.py"] --> B["1. Legal Disclaimer & Confirmation (Act 563)"]
-    B -- "Declined" --> Z["Clean Exit (Code 1)"]
-    B -- "Confirmed (yes)" --> C["2. Target & Authorized Scope Validation"]
-    C -- "Outside Scope / Invalid MZ" --> Z
-    C -- "--dry-run" --> Y["Dry-Run Summary & Clean Exit (Code 0)"]
-    C -- "Valid PE inside Scope" --> D["3. PE Header & Entropy Analysis (core/pe_analyzer.py)"]
-    D --> E["4. Suspicious API & MITRE Chain Check (core/api_checker.py)"]
-    E --> F["5. ASCII/UTF-16LE String & IOC Extraction (core/ioc_extractor.py)"]
-    F --> G["6. Risk Scoring & Local Report Export (core/scorer.py)"]
-```
-
+<img width="772" height="707" alt="Architecture drawio" src="https://github.com/user-attachments/assets/c62146cc-8d38-4b0f-aa54-917e70e57800" />
 
 ---
 
