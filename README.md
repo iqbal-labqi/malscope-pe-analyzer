@@ -150,6 +150,10 @@ Do you confirm you have authorization to proceed? (yes/no): yes
   Saved TXT       : output\malscope_report_dummy_test_20261117_201047.txt
 ```
 
+### Screenshot of the Terminal
+<img width="1133" height="1323" alt="image" src="https://github.com/user-attachments/assets/f0878451-c871-49bd-bb70-050bc1a778ea" />
+
+
 ---
 
 ## 6. Ethical Considerations & Rules of Engagement (RoE)
