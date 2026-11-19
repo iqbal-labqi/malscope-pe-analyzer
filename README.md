@@ -1,6 +1,6 @@
 # MalScope (PE-Sentry) - Static PE Header Inspector & IOC Extractor
 
-**Course:** IKB31603  Ethical Hacking (UniKL MIIT)  
+**Course:** IKB31603 - Ethical Hacking (UniKL MIIT)  
 **Attack Category:** Category 7 - Malware (*Static Malware Analyzer, PE Header Inspector & IOC Extractor*)
 
 ---
